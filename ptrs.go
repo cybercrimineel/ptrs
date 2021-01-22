@@ -1,46 +1,50 @@
 package ptrs
 
-import "sync"
-
-var (
-	mem = []interface{}{}
-	mtx = sync.RWMutex{}
+import (
+	"sync"
 )
 
-// Alloc allocates a reference
-func Alloc(v interface{}) int {
-	i := 0
-	mtx.Lock()
+var (
+	idx = uintptr(0)
+	mem = []interface{}{nil}
+	mtx = sync.Mutex{}
+	old = []uintptr{}
+)
 
-	for ; i < len(mem); i++ {
-		if mem[i] == nil {
-			mem[i] = v
-			mtx.Unlock()
-			return i
-		}
+// Alloc provides a reference to the given value
+func Alloc(val interface{}) uintptr {
+	mtx.Lock()
+	defer mtx.Unlock()
+
+	if len(old) != 0 {
+		defer func() {
+			old = old[1:]
+		}()
+
+		mem[old[0]] = val
+		return old[0]
 	}
 
-	mem = append(mem, v)
-	mtx.Unlock()
-	return i
+	defer func() {
+		idx++
+	}()
+
+	mem[idx] = val
+	mem = append(mem, nil)
+	return idx
 }
 
-// Deref dereferences a reference
-func Deref(i int) interface{} {
-	mtx.RLock()
-	defer mtx.RUnlock()
-	return mem[i]
-}
-
-// DerefAndFree dereferences and frees a reference
-func DerefAndFree(i int) interface{} {
-	defer Free(i)
-	return Deref(i)
-}
-
-// Free frees a reference
-func Free(i int) {
+// Deref provides the referenced value of a given reference
+func Deref(ref uintptr) interface{} {
 	mtx.Lock()
-	mem[i] = nil
+	defer mtx.Unlock()
+	return mem[ref]
+}
+
+// Free marks a given reference as overwritable
+func Free(ref uintptr) {
+	mtx.Lock()
+	mem[ref] = nil
+	old = append(old, ref)
 	mtx.Unlock()
 }
